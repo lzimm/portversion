@@ -14,7 +14,6 @@ async def reaper():
     while True:
         ts = time.time()
         p = next((p for (p, (v, t)) in sorted(portversions.items(), key=lambda p: p[1], reverse=True) if ts - t < 30), None)
-        print("P", p)
         if p != port:
             print("Updating port: %s" % p)
             port = p
