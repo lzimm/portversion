@@ -3,6 +3,10 @@ import asyncio
 import aioredis
 import signal
 import time
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 portversions = {}
 port = None
@@ -16,12 +20,12 @@ async def reaper():
         portverions = {p: (v, t) for (p, (v, t)) in portversions.items() if ts - t < 30}
         p = next((p for (p, (v, t)) in sorted(portversions.items(), key=lambda p: p[1], reverse=True)), None)
         if p != port:
-            print("Updating port: %s" % p)
+            logging.info("Updating port: %s" % p)
             port = p
         await asyncio.sleep(10)
 
 async def subscriber(channel):
-    print("Setting up channel: %s" % channel)
+    logging.info("Setting up channel: %s" % channel)
 
     redis = aioredis.Redis.from_url("redis://localhost")
     psub = redis.pubsub()
@@ -37,12 +41,12 @@ async def subscriber(channel):
                     port = int(bs[0:16], 16)
                     version = int(bs[16:], 16)
                     if port not in portversions:
-                        print("Setting port: %s version: %s" % (port, version))
+                        logging.info("Setting port: %s version: %s" % (port, version))
                     portversions[port] = (version, time.time())
             await asyncio.sleep(1)
 
     async with psub as p:
-        print("Subscribing to channel: %s" % channel)
+        logging.info("Subscribing to channel: %s" % channel)
 
         await p.subscribe(channel)
         await reader(p)
@@ -73,7 +77,7 @@ async def handler(local_reader, local_writer):
         local_writer.close()
 
 def server(port, channel):
-    print("Starting server on: %s" % port)
+    logging.info("Starting server on: %s" % port)
 
     loop = asyncio.get_event_loop()
     subscriber_task = loop.create_task(subscriber(channel))
@@ -87,8 +91,10 @@ def server(port, channel):
     except KeyboardInterrupt:
         pass
 
+    for task in asyncio.all_tasks():
+        task.cancel()
+
     server.close()
-    subscription.close()
     loop.close()
 
 if __name__ == '__main__':
