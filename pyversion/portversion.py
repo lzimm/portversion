@@ -83,7 +83,7 @@ def server(port, channel):
     subscriber_task = loop.create_task(subscriber(channel))
     reaper_task = loop.create_task(reaper())
 
-    handler_server = asyncio.start_server(handler, '127.0.0.1', port)
+    handler_server = asyncio.start_server(handler, '0.0.0.0', port)
     server = loop.run_until_complete(handler_server)
 
     try:
