@@ -6,12 +6,11 @@ import time
 import logging
 import sys
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-logging.basicConfig(filename="portversion.log",
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
+file_handler = logging.FileHandler(filename='portversion.log')
+stdout_handler = logging.StreamHandler(sys.stdout)
+logging.basicConfig(level=logging.INFO, 
+                    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+                    handlers=[file_handler, stdout_handler])
 
 portversions = {}
 port = None
