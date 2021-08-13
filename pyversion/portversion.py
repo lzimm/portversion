@@ -7,6 +7,11 @@ import logging
 import sys
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logging.basicConfig(filename="portversion.log",
+                    filemode='a',
+                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
 
 portversions = {}
 port = None
