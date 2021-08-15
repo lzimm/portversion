@@ -48,7 +48,24 @@ pub async fn reaper(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>, portver
     }
 }
 
-pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
+    let portversions = Arc::new(RwLock::new(HashMap::new()));
+    let portversion = Arc::new(RwLock::new((0, 0)));
+
+    let subscriberports = Arc::clone(&portversions);
+    tokio::spawn(async move {
+        subscriber(subscriberports);
+    });
+
+    let reaperports = Arc::clone(&portversions);
+    let reaperportversion = Arc::clone(&portversion);
+    tokio::spawn(async move {
+        reaper(reaperports, reaperportversion);
+    });
+
     log::info!("Starting server on: {}", "8080");
     let listener = TcpListener::bind("0.0.0.0:8080").await?;
 
@@ -90,27 +107,4 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
             }
         });
     }
-}
-
-#[tokio::main]
-async fn main() {
-    let portversions = Arc::new(RwLock::new(HashMap::new()));
-    let portversion = Arc::new(RwLock::new((0, 0)));
-
-    let subscriberports = Arc::clone(&portversions);
-    let subscribertask = tokio::spawn(async move {
-        subscriber(subscriberports);
-    });
-
-    let reaperports = Arc::clone(&portversions);
-    let reaperportversion = Arc::clone(&portversion);
-    let repaertask = tokio::spawn(async move {
-        reaper(reaperports, reaperportversion);
-    });
-    
-
-    let listenerportversion = Arc::clone(&portversion);
-    let listenertask = tokio::spawn(async move {
-        listener(listenerportversion);
-    });
 }
