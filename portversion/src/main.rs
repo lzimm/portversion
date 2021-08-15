@@ -89,6 +89,7 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
                                 match output.write_all(&buf[..n]).await {
                                     Ok(()) => {
                                         if n < 1024 {
+                                            log::info!("Done");
                                             break;
                                         }
                                     },
@@ -117,6 +118,7 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
                                 match input.write_all(&buf[..n]).await {
                                     Ok(()) => {
                                         if n < 1024 {
+                                            log::info!("Done");
                                             break;
                                         }
                                     },
