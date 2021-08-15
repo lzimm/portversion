@@ -63,48 +63,81 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
     let listener = TcpListener::bind("0.0.0.0:5000").await?;
 
     loop {
-        let (mut input, _) = listener.accept().await?;
-
-        let port = {
-            let current = portversion.read().unwrap();
-            current.0
-        };
-
-        log::info!("Found port: {}", port);
-
-        let mut output = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
-
-        tokio::spawn(async move {
-            let mut buf = vec![0; 1024];
-
-            loop {
-                match input.read(&mut buf).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if output.write_all(&buf[..n]).await.is_err() {
-                            return;
+        match listener.accept().await {
+            Ok((mut input, _)) => {
+                let port = {
+                    let current = portversion.read().unwrap();
+                    current.0
+                };
+        
+                let mut output = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
+        
+                log::info!("Opened connection to port: {}", port);
+        
+                tokio::spawn(async move {
+                    let mut buf = vec![0; 1024];
+        
+                    log::info!("Reading Input");
+        
+                    loop {
+                        match input.read(&mut buf).await {
+                            Ok(0) => {
+                                log::info!("Done");
+                                break;
+                            },
+                            Ok(n) => {
+                                match output.write_all(&buf[..n]).await {
+                                    Ok(()) => {
+                                        if n < 1024 {
+                                            break;
+                                        }
+                                    },
+                                    Err(e) => {
+                                        log::info!("Error: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::info!("Error: {}", e);
+                                break;
+                            }
                         }
                     }
-                    Err(_) => {
-                        return;
-                    }
-                }
-            }
-
-            loop {
-                match output.read(&mut buf).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if input.write_all(&buf[..n]).await.is_err() {
-                            return;
+        
+                    log::info!("Reading Output");
+        
+                    loop {
+                        match output.read(&mut buf).await {
+                            Ok(0) => {
+                                log::info!("Done");
+                                break;
+                            },
+                            Ok(n) => {
+                                match input.write_all(&buf[..n]).await {
+                                    Ok(()) => {
+                                        if n < 1024 {
+                                            break;
+                                        }
+                                    },
+                                    Err(e) => {
+                                        log::info!("Error: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::info!("Error: {}", e);
+                                break;
+                            }
                         }
                     }
-                    Err(_) => {
-                        return;
-                    }
-                }
+                });
+            },
+            Err(_) => {
+                continue;
             }
-        });
+        }
     }
 }
 
@@ -116,7 +149,7 @@ async fn main() {
     let portversion = Arc::new(RwLock::new((0, 0)));
 
     let subscriberports = Arc::clone(&portversions);
-    tokio::spawn(async move {
+    let subscriber_task = tokio::task::spawn(async move {
         if subscriber(subscriberports).await.is_err() {
             log::error!("Subscriber Error");
         } else {
@@ -126,7 +159,7 @@ async fn main() {
 
     let reaperports = Arc::clone(&portversions);
     let reaperportversion = Arc::clone(&portversion);
-    tokio::spawn(async move {
+    let reaper_task = tokio::task::spawn(async move {
         if reaper(reaperports, reaperportversion).await.is_err() {
             log::error!("Reaper Error");
         } else {
@@ -135,11 +168,17 @@ async fn main() {
     });
 
     let listenerportversion = Arc::clone(&portversion);
-    tokio::spawn(async move {
+    let listener_task = tokio::task::spawn(async move {
         if listener(listenerportversion).await.is_err() {
             log::error!("Listener Error");
         } else {
             log::info!("Listener Closed");
         }
     });
+
+    let (_, _, _) = tokio::join!(
+        subscriber_task,
+        reaper_task,
+        listener_task
+    );
 }
