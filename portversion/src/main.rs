@@ -3,9 +3,9 @@ use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::time::{sleep, Duration};
 
 pub async fn subscriber(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("Subscribing to channel: {}", "portversion");
     let red = redis::Client::open("redis://127.0.0.1:5432")?;
     let mut con = red.get_connection()?;
     let mut pubsub = con.as_pubsub();
@@ -19,6 +19,7 @@ pub async fn subscriber(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>) -> 
         let time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Error").as_secs() as u32;
         let mut portversions = portversions.write().unwrap();
         portversions.insert(port, (version, time));
+        log::info!("Setting port: {} version: {}", port, version);
     }
 }
 
@@ -31,20 +32,24 @@ pub async fn reaper(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>, portver
         let current = portversion.read().unwrap();
         let mut top = (current.0, current.1);
         for (&k, &v) in portversions.iter() {
-            if v.0 > current.1 {
+            if v.0 > top.1 {
                 top = (k, v.0);
             }
         }
 
-        let mut portversion = portversion.write().unwrap();
-        portversion.0 = top.0;
-        portversion.1 = top.1;
+        if top.0 != current.0 {
+            log::info!("Updating port: {}", top.0);
+            let mut portversion = portversion.write().unwrap();
+            portversion.0 = top.0;
+            portversion.1 = top.1;
+        }
 
-        sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 }
 
 pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("Starting server on: {}", "8080");
     let listener = TcpListener::bind("0.0.0.0:8080").await?;
 
     loop {

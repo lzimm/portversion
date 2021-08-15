@@ -659,6 +659,7 @@ dependencies = [
 name = "portversion"
 version = "0.1.0"
 dependencies = [
+ "log",
  "redis",
  "tokio 1.10.0",
 ]
