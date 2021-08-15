@@ -38,10 +38,10 @@ pub async fn reaper(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>, portver
             let mut top = current;
             let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Error").as_secs() as u32;
             let mut portversions = portversions.write().unwrap();
-            portversions.retain(|_, &mut v| (now - v.1) < 30);
-            for (&k, &v) in portversions.iter() {
-                if v.0 > top.1 {
-                    top = (k, v.0);
+            portversions.retain(|_, &mut (_, ts)| (now - ts) < 30);
+            for (&k, &(v, _)) in portversions.iter() {
+                if v > top.1 {
+                    top = (k, v);
                 }
             }
             top
