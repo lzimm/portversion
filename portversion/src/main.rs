@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub async fn subscriber(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Subscribing to channel: {}", "portversion");
-    let red = redis::Client::open("redis://127.0.0.1:5432")?;
+    let red = redis::Client::open("redis://127.0.0.1:6379")?;
     let mut con = red.get_connection()?;
     let mut pubsub = con.as_pubsub();
     pubsub.subscribe("portversion")?;
@@ -18,24 +18,34 @@ pub async fn subscriber(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>) -> 
         let version = u32::from_str_radix(&hex[16..], 16).expect("Error");
         let time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Error").as_secs() as u32;
         let mut portversions = portversions.write().unwrap();
-        portversions.insert(port, (version, time));
-        log::info!("Setting port: {} version: {}", port, version);
+        match portversions.insert(port, (version, time)) {
+            Some(m) => if m.0 != version {
+                log::info!("Setting port: {} version: {}", port, version)
+            },
+            None => log::info!("Setting port: {} version: {}", port, version)
+        }
     }
 }
 
 pub async fn reaper(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>, portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Error").as_secs() as u32;
-        let mut portversions = portversions.write().unwrap();
-        portversions.retain(|_, &mut v| (now - v.1) < 30);
+        let current = {
+            let portversion = portversion.read().unwrap();
+            (portversion.0, portversion.1)
+        };
 
-        let current = portversion.read().unwrap();
-        let mut top = (current.0, current.1);
-        for (&k, &v) in portversions.iter() {
-            if v.0 > top.1 {
-                top = (k, v.0);
+        let top = {
+            let mut top = current;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Error").as_secs() as u32;
+            let mut portversions = portversions.write().unwrap();
+            portversions.retain(|_, &mut v| (now - v.1) < 30);
+            for (&k, &v) in portversions.iter() {
+                if v.0 > top.1 {
+                    top = (k, v.0);
+                }
             }
-        }
+            top
+        };
 
         if top.0 != current.0 {
             log::info!("Updating port: {}", top.0);
@@ -49,14 +59,20 @@ pub async fn reaper(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>, portver
 }
 
 pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Starting server on: {}", "8080");
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
+    log::info!("Starting server on: {}", "5000");
+    let listener = TcpListener::bind("0.0.0.0:5000").await?;
 
     loop {
         let (mut input, _) = listener.accept().await?;
 
-        let current = portversion.read().unwrap();
-        let mut output = TcpStream::connect(format!("127.0.0.1:{}", current.0)).await?;
+        let port = {
+            let current = portversion.read().unwrap();
+            current.0
+        };
+
+        log::info!("Found port: {}", port);
+
+        let mut output = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
 
         tokio::spawn(async move {
             let mut buf = vec![0; 1024];
@@ -101,17 +117,29 @@ async fn main() {
 
     let subscriberports = Arc::clone(&portversions);
     tokio::spawn(async move {
-        subscriber(subscriberports);
+        if subscriber(subscriberports).await.is_err() {
+            log::error!("Subscriber Error");
+        } else {
+            log::info!("Subscriber Closed");
+        }
     });
 
     let reaperports = Arc::clone(&portversions);
     let reaperportversion = Arc::clone(&portversion);
     tokio::spawn(async move {
-        reaper(reaperports, reaperportversion);
+        if reaper(reaperports, reaperportversion).await.is_err() {
+            log::error!("Reaper Error");
+        } else {
+            log::info!("Reaper Closed");
+        }
     });
 
     let listenerportversion = Arc::clone(&portversion);
     tokio::spawn(async move {
-        listener(listenerportversion);
+        if listener(listenerportversion).await.is_err() {
+            log::error!("Listener Error");
+        } else {
+            log::info!("Listener Closed");
+        }
     });
 }
