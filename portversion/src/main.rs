@@ -62,6 +62,32 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
     log::info!("Starting server on: {}", "5000");
     let listener = TcpListener::bind("0.0.0.0:5000").await?;
 
+    async fn pipe(src: &mut tokio::net::TcpStream, dest: &mut tokio::net::TcpStream) {
+        let mut buf = vec![0; 1024];
+        loop {
+            match src.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    match dest.write_all(&buf[..n]).await {
+                        Ok(()) => {
+                            if n < 1024 {
+                                break;
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("Error: {}", e);
+                            break;
+                        }
+                    }
+                },
+                Err(e) => {
+                    log::error!("Error: {}", e);
+                    break;
+                }
+            }
+        }
+    }
+
     loop {
         match listener.accept().await {
             Ok((mut input, _)) => {
@@ -70,71 +96,23 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
                     current.0
                 };
         
-                let mut output = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
+                match TcpStream::connect(format!("127.0.0.1:{}", port)).await {
+                    Ok(mut output) => {
+                        log::info!("Opened connection to port: {}", port);
         
-                log::info!("Opened connection to port: {}", port);
-        
-                tokio::spawn(async move {
-                    let mut buf = vec![0; 1024];
-        
-                    log::info!("Reading Input");
-        
-                    loop {
-                        match input.read(&mut buf).await {
-                            Ok(0) => {
-                                log::info!("Done");
-                                break;
-                            },
-                            Ok(n) => {
-                                match output.write_all(&buf[..n]).await {
-                                    Ok(()) => {
-                                        if n < 1024 {
-                                            log::info!("Done");
-                                            break;
-                                        }
-                                    },
-                                    Err(e) => {
-                                        log::info!("Error: {}", e);
-                                        break;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                log::info!("Error: {}", e);
-                                break;
-                            }
+                        tokio::spawn(async move {
+                            pipe(&mut input, &mut output).await;
+                            pipe(&mut output, &mut input).await;
+                        });
+                    },
+                    Err(e) => {
+                        log::error!("Error: {}", e);
+                        if input.shutdown().await.is_err() {
+                            log::error!("Error closing socket");
                         }
+                        continue;
                     }
-        
-                    log::info!("Reading Output");
-        
-                    loop {
-                        match output.read(&mut buf).await {
-                            Ok(0) => {
-                                log::info!("Done");
-                                break;
-                            },
-                            Ok(n) => {
-                                match input.write_all(&buf[..n]).await {
-                                    Ok(()) => {
-                                        if n < 1024 {
-                                            log::info!("Done");
-                                            break;
-                                        }
-                                    },
-                                    Err(e) => {
-                                        log::info!("Error: {}", e);
-                                        break;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                log::info!("Error: {}", e);
-                                break;
-                            }
-                        }
-                    }
-                });
+                }
             },
             Err(_) => {
                 continue;
