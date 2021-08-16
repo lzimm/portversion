@@ -8,5 +8,6 @@ edition = "2018"
 [dependencies]
 log = { version = "0.4" }
 env_logger = { version = "0.8.4" }
+structopt = { version = "0.3", default-features = false }
 tokio = { version = "1.10.0", features = ["full"] }
 redis = { version = "0.17.0", features = ["tokio-comp"] }

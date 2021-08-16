@@ -1,15 +1,26 @@
+use structopt::StructOpt;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-pub async fn subscriber(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Subscribing to channel: {}", "portversion");
+#[derive(Debug, StructOpt)]
+#[structopt(name="portversion")]
+struct Opt {
+    #[structopt(short, long, default_value="5000")]
+    port: u32,
+
+    #[structopt(short, long, default_value="portversion")]
+    channel: String
+}
+
+pub async fn subscriber(channel: String, portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("Subscribing to channel: {}", channel);
     let red = redis::Client::open("redis://127.0.0.1:6379")?;
     let mut con = red.get_connection()?;
     let mut pubsub = con.as_pubsub();
-    pubsub.subscribe("portversion")?;
+    pubsub.subscribe(channel)?;
     
     loop {
         let msg = pubsub.get_message()?;
@@ -58,9 +69,9 @@ pub async fn reaper(portversions: Arc<RwLock<HashMap<u32, (u32, u32)>>>, portver
     }
 }
 
-pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Starting server on: {}", "5000");
-    let listener = TcpListener::bind("0.0.0.0:5000").await?;
+pub async fn listener(port: u32, portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("Starting server on: {}", port);
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
 
     async fn pipe(src: &mut tokio::net::TcpStream, dest: &mut tokio::net::TcpStream) {
         let mut buf = vec![0; 1024];
@@ -125,12 +136,15 @@ pub async fn listener(portversion: Arc<RwLock<(u32, u32)>>) -> Result<(), Box<dy
 async fn main() {
     env_logger::init();
 
+    let opt = Opt::from_args();
+
     let portversions = Arc::new(RwLock::new(HashMap::new()));
     let portversion = Arc::new(RwLock::new((0, 0)));
 
+    let subscriberchannel = opt.channel;
     let subscriberports = Arc::clone(&portversions);
     let subscriber_task = tokio::task::spawn(async move {
-        if subscriber(subscriberports).await.is_err() {
+        if subscriber(subscriberchannel, subscriberports).await.is_err() {
             log::error!("Subscriber Error");
         } else {
             log::info!("Subscriber Closed");
@@ -147,9 +161,10 @@ async fn main() {
         }
     });
 
+    let listenerport = opt.port;
     let listenerportversion = Arc::clone(&portversion);
     let listener_task = tokio::task::spawn(async move {
-        if listener(listenerportversion).await.is_err() {
+        if listener(listenerport, listenerportversion).await.is_err() {
             log::error!("Listener Error");
         } else {
             log::info!("Listener Closed");
