@@ -134,7 +134,7 @@ pub async fn listener(port: u32, portversion: Arc<RwLock<(u32, u32)>>) -> Result
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
     let opt = Opt::from_args();
 
