@@ -1,1 +1,5 @@
 A simple tool that opens a port and forwards traffic to the highest versioned listener in a set of connected services.
+
+This is not meant to be used in production. It is only designed for a single request/response that gets forwarded to a port and then ignores any subsequent reads/writes, and furthermore, assumes that after it starts reading a request/response off a socket that if after looping over reads it doesn't have enough bytes left to fill a 1024 byte bufer that it's doing reading and can move onto the next stage of the request cycle (when, for HTTP requests for instance, it should really be looking at "\r\n" at the end of the incoming request and parsing content-length headers on the returned response).
+
+Two implementations, python and rust, but this is really just for fun and listens to a redis channel for messages that are simply the concatentation of a hex encoded (long) port number and hex encoded (long) version number, stores those ports and versions in a lookup table, and then forwards incoming requests to, again, the highest versioned port. Hence the name: portversion.
