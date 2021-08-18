@@ -114,6 +114,12 @@ pub async fn listener(port: u32, portversion: Arc<RwLock<(u32, u32)>>) -> Result
                         tokio::spawn(async move {
                             pipe(&mut input, &mut output).await;
                             pipe(&mut output, &mut input).await;
+                            if output.shutdown().await.is_err() {
+                                log::error!("Error closing output socket");
+                            }
+                            if input.shutdown().await.is_err() {
+                                log::error!("Error closing input socket");
+                            }
                         });
                     },
                     Err(e) => {
