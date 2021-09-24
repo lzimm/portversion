@@ -73,18 +73,14 @@ pub async fn listener(port: u32, portversion: Arc<RwLock<(u32, u32)>>) -> Result
     log::info!("Starting server on: {}", port);
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
 
-    async fn pipe(src: &mut tokio::net::TcpStream, dest: &mut tokio::net::TcpStream) {
+    async fn pipe(src: &mut tokio::io::ReadHalf<tokio::net::TcpStream>, dest: &mut tokio::io::WriteHalf<tokio::net::TcpStream>) {
         let mut buf = vec![0; 1024];
         loop {
             match src.read(&mut buf).await {
                 Ok(0) => break,
                 Ok(n) => {
                     match dest.write_all(&buf[..n]).await {
-                        Ok(()) => {
-                            if n < 1024 {
-                                break;
-                            }
-                        },
+                        Ok(()) => continue,
                         Err(e) => {
                             log::error!("Error: {}", e);
                             break;
@@ -101,30 +97,37 @@ pub async fn listener(port: u32, portversion: Arc<RwLock<(u32, u32)>>) -> Result
 
     loop {
         match listener.accept().await {
-            Ok((mut input, _)) => {
+            Ok((input, _)) => {
+                let (mut inread, mut inwrite) = tokio::io::split(input);
+
                 let port = {
                     let current = portversion.read().unwrap();
                     current.0
                 };
         
                 match TcpStream::connect(format!("127.0.0.1:{}", port)).await {
-                    Ok(mut output) => {
+                    Ok(output) => {
                         log::info!("Opened connection to port: {}", port);
         
                         tokio::spawn(async move {
-                            pipe(&mut input, &mut output).await;
-                            pipe(&mut output, &mut input).await;
-                            if output.shutdown().await.is_err() {
+                            let (mut outread, mut outwrite) = tokio::io::split(output);
+
+                            let request = pipe(&mut inread, &mut outwrite);
+                            let response = pipe(&mut outread, &mut inwrite);
+
+                            tokio::join!(request, response);
+
+                            if outwrite.shutdown().await.is_err() {
                                 log::error!("Error closing output socket");
                             }
-                            if input.shutdown().await.is_err() {
+                            if inwrite.shutdown().await.is_err() {
                                 log::error!("Error closing input socket");
                             }
                         });
                     },
                     Err(e) => {
                         log::error!("Error: {}", e);
-                        if input.shutdown().await.is_err() {
+                        if inwrite.shutdown().await.is_err() {
                             log::error!("Error closing socket");
                         }
                         continue;
